@@ -1,6 +1,18 @@
 # StringMorph
 
-**StringMorph** is a Python tool designed to find, scramble, and modify binary data. It allows you to extract ASCII strings from binary files and perform binary modifications based on a set of rules. The tool provides flexibility with several options, including testing mode, binary hashing, and targeted modifications using custom CSV files.
+**StringMorph** extracts printable ASCII strings and their byte offsets from binary files and can replace selected strings in a separate copy. It runs with Python 3 and the standard library.
+
+## Demo
+
+![StringMorph console demo using an inert binary fixture](docs/assets/stringmorph-demo.gif)
+
+The animation is generated from real CLI runs against a harmless 66-byte fixture. It shows extraction, a write-free preview, modification, and an independent check that the output has the same length and no bytes outside the selected range changed. Regenerate it with `python tools/create_demo_gif.py` after installing Pillow.
+
+### What preservation means
+
+StringMorph validates byte ranges and preserves file length and all bytes outside the selected ranges. **These checks do not guarantee that a modified executable still works.** Import names, filenames, lookup keys, format strings, and other program data can be essential even when a replacement has exactly the same length. Random replacement is irreversible; it does not encrypt strings or restore their original values at runtime. Executable signatures and application integrity checks may also be invalidated.
+
+Use a reviewed CSV containing only strings whose contents are known to be dispensable. Validate the modified program with its own functional tests. Adding more scrambling algorithms does not resolve this limitation for existing compiled binaries. For example, Windows import names must match the names exported by the corresponding DLL ([Microsoft PE specification](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#hintname-table)).
 
 ## Features
 
@@ -14,7 +26,7 @@
 Clone the repository and navigate to the project directory:
 
 ```bash
-git clone https://github.com/yourusername/StringMorph.git
+git clone https://github.com/jperezduerto/StringMorph.git
 cd StringMorph
 ```
 
@@ -26,13 +38,13 @@ Ensure you have Python 3 installed. You can run the program directly without any
 
 - `filename`: The binary file to inspect and/or modify.
 - `-l, --length`: Minimum length of ASCII strings to consider (default: 7).
-- `-k, --keywords`: Comma-separated list of keywords to filter strings.
+- `-k, --keywords`: Comma-separated, case-insensitive keywords. For compatibility, supplying keywords uses the shortest keyword length instead of `--length`. Empty keyword elements are rejected.
 - `-v, --verbose`: Print output to the terminal.
-- `-o, --output`: Specify the output CSV file name (default: `output.csv`).
+- `-o, --output`: Specify a new output CSV file name (default: `output.csv`). Existing files are never overwritten.
 - `--no-space`: Consider strings separated by spaces as individual strings.
 - `-e, --execute`: Modify the binary file using extracted strings or sourcefile.
-- `-t, --test`: Modify the binary file in test mode (no file will be saved).
-- `--single-char`: Substitute strings using only this character (numbers replaced by 4).
+- `-t, --test`: Validate and display replacements without creating or changing any files, including CSV and temporary files. Cannot be combined with `--execute`.
+- `--single-char`: Replace letters with exactly one printable ASCII character; digits become `4` and punctuation is preserved. Without this option, letters and digits are randomized within their respective classes.
 - `-s, --sourcefile`: Specify a CSV file to use for binary modifications instead of extracting strings.
 
 ### Basic String Extraction
@@ -40,7 +52,7 @@ Ensure you have Python 3 installed. You can run the program directly without any
 Extract ASCII strings from a binary file and save them to a CSV file:
 
 ```bash
-python stringmorph.py binaryfile.bin -o output.csv
+python StringMorph.py binaryfile.bin -o output.csv
 ```
 
 ### Extract Strings with Keyword Filtering
@@ -48,15 +60,15 @@ python stringmorph.py binaryfile.bin -o output.csv
 Extract strings that contain specific keywords:
 
 ```bash
-python stringmorph.py binaryfile.bin -k keyword1,keyword2 -o output.csv
+python StringMorph.py binaryfile.bin -k keyword1,keyword2 -o output.csv
 ```
 
 ### Binary Modification Based on Extracted Strings
 
-Modify a binary file using the strings extracted in the previous step:
+Extract strings afresh and modify a separate copy of the binary. Both output paths must be new; this command does not reuse a previously edited CSV:
 
 ```bash
-python stringmorph.py binaryfile.bin -e -o output.csv
+python StringMorph.py binaryfile.bin -e -o fresh-strings.csv
 ```
 
 ### Modify Binary File Using an External CSV File
@@ -64,7 +76,7 @@ python stringmorph.py binaryfile.bin -e -o output.csv
 Modify a binary file using an external CSV file (`sourcefile.csv`), which contains the positions and strings to be replaced:
 
 ```bash
-python stringmorph.py binaryfile.bin -s sourcefile.csv -e
+python StringMorph.py binaryfile.bin -s sourcefile.csv -e
 ```
 
 ### Test Mode
@@ -72,52 +84,70 @@ python stringmorph.py binaryfile.bin -s sourcefile.csv -e
 Run the binary modification in test mode (no file will be saved, and modifications will be displayed):
 
 ```bash
-python stringmorph.py binaryfile.bin -t -o output.csv
+python StringMorph.py binaryfile.bin -t
 ```
 
 ### Use a Single Character for String Replacement
 
-Replace all characters in the strings with a single character, such as `A`, while modifying the binary:
+Replace letters with `A` and digits with `4`, preserving punctuation and spaces:
 
 ```bash
-python stringmorph.py binaryfile.bin -s sourcefile.csv -e --single-char A
+python StringMorph.py binaryfile.bin -s sourcefile.csv -e --single-char A
 ```
 
 ### Example Commands
 
-1. **Extract strings longer than 7 characters** from `sample.bin`:
+1. **Extract strings of at least 7 characters** from `sample.bin`:
    ```bash
-   python stringmorph.py sample.bin -l 7 -o strings.csv
+   python StringMorph.py sample.bin -l 7 -o strings.csv
    ```
 
 2. **Modify `sample.bin` using strings from `source.csv`** with the default random string replacements:
    ```bash
-   python stringmorph.py sample.bin -s source.csv -e
+   python StringMorph.py sample.bin -s source.csv -e
    ```
 
-3. **Run a test modification** of `sample.bin` with all characters replaced by `X`:
+3. **Preview modifications** with letters replaced by `X` and digits by `4`:
    ```bash
-   python stringmorph.py sample.bin -s source.csv -t --single-char X
+   python StringMorph.py sample.bin -s source.csv -t --single-char X
    ```
 
 4. **Extract strings containing specific keywords** and modify the binary file:
    ```bash
-   python stringmorph.py sample.bin -k password,secret -e
+   python StringMorph.py sample.bin -k label,description -e
    ```
 
-5. **Extract strings without considering spaces** as separators and save to `strings.csv`:
+5. **Treat spaces as separators** and save to a new `strings.csv`:
    ```bash
-   python stringmorph.py sample.bin --no-space -o strings.csv
+   python StringMorph.py sample.bin --no-space -o strings.csv
    ```
 
 6. **Generate SHA256 hashes** of the original and modified binary files:
    ```bash
-   python stringmorph.py sample.bin -e -o strings.csv
+   python StringMorph.py sample.bin -e -o strings.csv
    ```
 
 ### Additional Information
 
-The tool generates SHA256 hashes of the original and modified binary files to verify the integrity of the modifications. The `--test` flag allows you to preview modifications without saving them, which is useful for debugging or exploring potential changes.
+The tool reports SHA-256 hashes of the input snapshot and the modified bytes. Hashes identify the data; they do not prove functional equivalence. The original file is preserved, and the modified copy is named `<stem>_modified<extension>`.
+
+### CSV contract and output handling
+
+CSV files use UTF-8 (an optional UTF-8 BOM is accepted), with exactly two columns and the header `Location,String`. Locations are nonnegative hexadecimal offsets, optionally prefixed with `0x`. Strings must be nonempty printable ASCII and must exactly match the input bytes at their offsets.
+
+Duplicate offsets, overlapping ranges, out-of-bounds ranges, malformed rows, and stale strings reject the entire plan before writing outputs. Adjacent ranges and a header-only CSV are valid; a header-only plan makes an unchanged copy.
+
+Every replacement must have the same byte length as its original. Output files are staged in their destination directories and published without overwriting existing paths. This requires a filesystem with hard-link support, such as NTFS or ext4; unsupported filesystems fail without overwriting files. After a write/publication failure, cleanup attempts to remove every temporary file and every output published by that operation. Any cleanup failures report the paths that may remain, while retaining the original error. If publication succeeds but temporary-file cleanup fails, output is still reported as saved and the remaining temporary paths are reported separately. Publication of a binary and CSV together is not a crash-atomic transaction.
+
+### Tests
+
+Run the synthetic-data regression suite without third-party dependencies:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+These tests verify extraction, validation, preview behavior, and byte preservation. They do not execute input binaries or establish application compatibility.
 
 ## Contributions
 
